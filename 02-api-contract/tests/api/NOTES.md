@@ -151,10 +151,11 @@ cause intermittent `429` failures that have nothing to do with the test logic.
 
 ### One token fetch per file, not per test
 
-The OAuth token is fetched once in `beforeAll`, not inside each `test()`. The token endpoint has
-been observed to intermittently return `500` on staging regardless of credentials. Minimising calls
-to it reduces the window for that failure to affect the suite — six tests sharing one token means
-six fewer opportunities for a spurious token-endpoint error to cause a false failure.
+The OAuth token is fetched once in `beforeAll`, not inside each `test()`. The token endpoint was
+previously observed to intermittently return `500` on staging regardless of credentials — it is
+now confirmed working. Minimising calls to it still reduces unnecessary load on the shared
+environment — six tests sharing one token means six fewer round-trips to the token endpoint per
+run.
 
 ### Fast-fail on misconfiguration
 
