@@ -47,7 +47,7 @@ The Monthly Price column shows `$0.00` for all listings, regardless of the price
 
 ### Screenshot 1 — Listings dashboard showing $0.00 for all listings
 
-![Listings dashboard — Monthly Price shows $0.00](screenshots/dashboard-price-zero.png)
+![Listings dashboard — Monthly Price shows $0.00](screenshots/dashboard-list.png)
 
 > The Monthly Price column displays `$0.00` for "1015 Folsom", "1 Hotel Brooklyn Bridge", and
 > "30th Street Station" — all listings show the same incorrect value regardless of the price set.
@@ -56,7 +56,7 @@ The Monthly Price column shows `$0.00` for all listings, regardless of the price
 
 ### Screenshot 2 — Listing detail page showing correct price of $121.00/mo
 
-![Listing detail page — correct price $121.00/mo](screenshots/listing-detail-price-correct.png)
+![Listing detail page — correct price $121.00/mo](screenshots/details-page.png)
 
 > Navigating to the "1015 Folsom" listing detail page shows `$121.00 /mo` in the booking widget,
 > confirming the price is stored correctly. The discrepancy is isolated to the dashboard display.
