@@ -31,15 +31,6 @@ export class ListingDetailsSection {
         await this.fullSizedSedanButton.click();
     }
 
-    async selectDimensionsWidth(): Promise<void> {
-    }
-
-    async selectDimensionsLength(): Promise<void> {
-    }
-
-    async selectDimensionsHeight(): Promise<void> {
-    }
-
     async clickNextListingDescription(): Promise<void> {
         await this.nextListingDescriptionButton.scrollIntoViewIfNeeded();
         await this.nextListingDescriptionButton.click();
