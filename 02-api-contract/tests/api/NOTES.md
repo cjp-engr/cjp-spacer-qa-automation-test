@@ -135,6 +135,41 @@ Config choices that affect validation reliability: `fullyParallel: false` and `w
 `playwright.config.ts`, so tests run serially against the shared staging environment — deliberate,
 since this endpoint is rate-limited and the suite reuses one OAuth token across all tests.
 
+## Waiting strategy
+
+API tests are synchronous request/response by nature — there is no UI rendering lag, no DOM
+mutation, and no animation to wait for. Playwright's `APIRequestContext` awaits the full HTTP
+response before returning, so there are no explicit waits in the spec file itself.
+
+Flake prevention here is structural rather than timing-based:
+
+### Serial execution
+
+`fullyParallel: false` and `workers: 1` in `playwright.config.ts` ensure tests run one at a time
+against the shared staging environment. Parallel requests against a rate-limited endpoint would
+cause intermittent `429` failures that have nothing to do with the test logic.
+
+### One token fetch per file, not per test
+
+The OAuth token is fetched once in `beforeAll`, not inside each `test()`. The token endpoint has
+been observed to intermittently return `500` on staging regardless of credentials. Minimising calls
+to it reduces the window for that failure to affect the suite — six tests sharing one token means
+six fewer opportunities for a spurious token-endpoint error to cause a false failure.
+
+### Fast-fail on misconfiguration
+
+`VALID_LISTING_ID` is validated (present, integer) in `beforeAll` before any test runs. A
+misconfigured `.env` fails the entire suite immediately with one clear error rather than letting
+every test fail individually with a confusing `400`/`404` that looks like a contract regression.
+
+### What was deliberately avoided
+
+| Avoided pattern | Why |
+|---|---|
+| Retry loops around `getAccessToken` | Retrying a failing token fetch masks infrastructure issues; better to fail fast and surface the problem |
+| `page.waitForTimeout` / `sleep` between requests | Not needed — each request awaits its response before the next test starts |
+| Parallel workers | Would race against the rate limit and produce intermittent `429`s unrelated to the contract |
+
 ## Assertion selection strategy
 
 API contract tests don't use DOM locators, but there is an equivalent priority chain for how

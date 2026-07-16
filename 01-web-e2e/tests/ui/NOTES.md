@@ -160,6 +160,121 @@ Unique values (`uniqueListingName`, `uniqueDescription`, `uniqueInstructions`, `
 test body, not at module scope, so retries (`playwright.config.ts` sets `retries: 2` in CI) get
 fresh values instead of re-attempting with the same data that caused the prior failure.
 
+## Waiting strategy
+
+Flaky tests almost always come down to timing — asserting or interacting with something before the
+page is ready. Every wait in this suite is explicit and action-specific. There are no `sleep` or
+`waitForTimeout` calls anywhere; those mask symptoms instead of fixing the underlying race.
+
+### Priority chain
+
+| Priority | Strategy | When to use |
+|---|---|---|
+| 1 | Auto-waiting via action (`click`, `fill`) | Playwright waits for the element to be actionable before every interaction — this is the default and covers most cases |
+| 2 | `expect(locator).toBeVisible()` | Before a critical action where you need to assert readiness first, not just wait for it |
+| 3 | `waitForURL(pattern)` | After a navigation-triggering action; confirms the redirect completed before the next step runs |
+| 4 | `.waitFor({ state: 'visible' })` | Third-party or dynamically injected elements that Playwright's auto-wait doesn't cover |
+| 5 | `expect(...).toPass({ timeout })` | Async UI state that updates after the page has already settled (polling until the assertion passes) |
+| 6 | `pressSequentially` with `delay` | Simulates realistic typing speed for inputs that trigger debounced API calls |
+
+### Where each strategy is used in this suite
+
+**Auto-waiting (built-in) — the default for all interactions:**
+
+Every `click()`, `fill()`, `selectOption()`, and `scrollIntoViewIfNeeded()` call waits
+automatically for the element to be attached, visible, stable, and enabled before acting. This
+covers the majority of the wizard steps without any explicit waits.
+
+**`expect(locator).toBeVisible()` — used before a critical first action:**
+
+```ts
+// picture-and-location.ts
+await expect(this.listYourSpaceButton).toBeVisible();
+await this.listYourSpaceButton.click();
+```
+
+The "List Your Space" button is the entry point for the entire wizard. Asserting visibility before
+clicking makes the failure message clear ("element not visible") rather than a generic action
+timeout, and confirms the home page has fully rendered before proceeding.
+
+**`waitForURL(pattern)` — used after every section that triggers a redirect:**
+
+```ts
+// photos-of-listing.ts — after skipping photos
+await this.page.waitForURL(/listing_review/, { waitUntil: 'domcontentloaded' });
+
+// review-listing.ts — after submitting the listing
+await this.page.waitForURL(/listing_submitted/, { waitUntil: 'domcontentloaded' });
+
+// completed.ts — after clicking Go to Dashboard
+await this.page.waitForURL(/listings/, { waitUntil: 'domcontentloaded' });
+```
+
+Without this, the next step would run immediately after the click and find the previous page's
+elements still in the DOM. `waitUntil: 'domcontentloaded'` is used instead of the default `load`
+event — it unblocks as soon as the HTML is parsed, without waiting for all images, fonts, and
+third-party scripts to finish, which is faster and sufficient for the next locator interaction.
+
+**`.waitFor({ state: 'visible' })` — used for the Google Places autocomplete dropdown:**
+
+```ts
+// picture-and-location.ts
+const firstSuggestion = this.page.locator('.pac-item').first();
+await firstSuggestion.waitFor({ state: 'visible' });
+await firstSuggestion.click();
+```
+
+The `.pac-item` dropdown is injected by the Google Maps Places API after a debounced network call
+— it is not present in the DOM when `fillLocationAddress()` starts. Playwright's auto-wait doesn't
+cover elements that don't exist yet, so an explicit `.waitFor()` is needed here.
+
+**`expect(...).toPass({ timeout })` — used for the async dashboard count:**
+
+```ts
+// create-listing.spec.ts
+await expect(async () => {
+  const currentCount = await listingsPage.getListingsCount();
+  expect(currentCount).toBe(listingsCountBeforeCreation + 1);
+}).toPass({ timeout: 10_000 });
+```
+
+After the redirect to `/listings`, the dashboard count updates asynchronously — the page renders
+before the server-side data is reflected. A single assertion would fail on the stale render.
+`toPass()` retries the entire async block on a short interval until it passes or the 10-second
+timeout is hit, without any manual polling loop or `sleep`.
+
+**`pressSequentially` with `delay` — used for the address autocomplete input:**
+
+```ts
+// picture-and-location.ts
+await addressInput.pressSequentially(address, { delay: 100 });
+```
+
+`fill()` sets the full value instantly, which doesn't trigger the Google Places keystroke listeners
+— the autocomplete dropdown never appears. `pressSequentially` with a 100ms delay between
+characters mimics realistic typing, giving the Places API time to fire its debounced request and
+render suggestions. This is the deliberate exception to preferring `fill()`.
+
+**`scrollIntoViewIfNeeded()` — used before clicking "Next" buttons:**
+
+```ts
+await this.nextListingDetailsButton.scrollIntoViewIfNeeded();
+await this.nextListingDetailsButton.click();
+```
+
+The wizard's "Next" buttons sit at the bottom of each section and may be off-screen on smaller
+viewports or when the page loads mid-scroll. Scrolling before clicking prevents Playwright from
+clicking a covered or partially-visible element, which would either fail or mis-fire.
+
+### What was deliberately avoided
+
+| Avoided pattern | Why |
+|---|---|
+| `page.waitForTimeout(ms)` / `sleep` | Hardcoded delays either wait too long (slow runs) or not long enough (flaky on slow CI). Every wait here is condition-based, not time-based. |
+| `waitUntil: 'load'` on `goto()` | Waits for all resources including third-party scripts (analytics, ads). `domcontentloaded` is sufficient and significantly faster on staging. |
+| `waitUntil: 'networkidle'` | Unreliable on pages with polling or persistent WebSocket connections; staging has analytics beacons that keep the network perpetually "busy". |
+| Re-querying the DOM inside a loop | `toPass()` handles the retry loop; manual polling with `while` or `setInterval` is harder to read and harder to time out cleanly. |
+
 ## Locator selection strategy
 
 The app exposes no `data-testid` hooks, so locators fall through a priority chain from most to least
